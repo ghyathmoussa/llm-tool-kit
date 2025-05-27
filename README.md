@@ -57,6 +57,16 @@ python3 tokenizer_model.py \
     --special-tokens "[PAD]" "[UNK]" "[CLS]" "[SEP]" "[MASK]"
 ```
 
+* Embeddings Model
+
+```
+python3 embeddings_model.py \
+     --data_path data1.jsonl \
+     --batch_size 16 \
+    --learning_rate 0.001 \
+    --epochs 5
+```
+
 Refer to the individual notebooks for specific instructions and execution details.
 
 ## Configuration
