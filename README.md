@@ -117,6 +117,15 @@ python generate_synthetic_data.py \
   --llm-model openai/gpt-4o-mini
 ```
 
+* Preprocess Data (Chunking)
+
+```
+python3 preprocess_data.py \
+    --input-file path/to/input.txt \
+    --output-file path/to/output.jsonl \
+    --max-tokens 2048 \
+    --skip-header "Header text to skip"
+```
 ## Configuration
 
 The project configuration is managed in `config.py`. This file loads environment variables from a `.env` file located in the project root. Key configuration variables include:
