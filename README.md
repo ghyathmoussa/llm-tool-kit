@@ -42,17 +42,19 @@ This project focuses on Natural Language Processing (NLP) for Arabic text. It ut
 
 ## Usage
 
-The primary workflows and experiments are likely managed through the Jupyter notebooks in the `notebooks/` directory:
+* Tokenizer Model
 
-*   `notebooks/process_data.ipynb`: Likely contains code for processing Arabic text data.
-*   `notebooks/semantic_process.ipynb`: Likely contains code for semantic analysis tasks.
-
-To run the notebooks, ensure your virtual environment is activated and you have Jupyter installed (`pip install jupyterlab notebook`). Then, navigate to the `notebooks/` directory and run:
-
-```bash
-jupyter notebook
-# or for JupyterLab
-jupyter lab
+```
+python3 tokenizer_model.py \
+    --tokenizer-name "custom-arabic-tokenizer" \
+    --vocab-size 32000 \
+    --max-length 4096 \
+    --model-path "/path/to/tokenizer.json" \
+    --texts-source "data1.jsonl" \
+    --min-frequency 2 \
+    --batch-size 1000 \
+    --max-samples 10000 \
+    --special-tokens "[PAD]" "[UNK]" "[CLS]" "[SEP]" "[MASK]"
 ```
 
 Refer to the individual notebooks for specific instructions and execution details.
