@@ -106,7 +106,16 @@ python finetune_model.py \
   --max-completion-length 128
 ```
 
+* Generating Synthetic Data
 
+```
+python generate_synthetic_data.py \
+  --input-file path/to/dataset \
+  --output-file data/synthetic_finetuning_data.jsonl \
+  --qa-per-chunk 3 \
+  --llm-api-key <your_openrouter_api_key> \
+  --llm-model openai/gpt-4o-mini
+```
 
 ## Configuration
 
