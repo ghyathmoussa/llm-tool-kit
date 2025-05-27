@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 import gc  # For garbage collection
 import json
+import argparse
 
 seed(42)
 
@@ -104,39 +105,54 @@ class TokenizerModel:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    
-    tokenizer_path = Path(f"{PROJECT_ROOT}/outputs/custom_tokenizer.json")
-    
+
+    # Argument parser setup
+    parser = argparse.ArgumentParser(description="Train and use a custom tokenizer.")
+    parser.add_argument("--tokenizer-name", type=str, required=True, help="Name of the tokenizer.")
+    parser.add_argument("--vocab-size", type=int, required=True, help="Vocabulary size for the tokenizer.")
+    parser.add_argument("--max-length", type=int, required=True, help="Maximum length of tokenized sequences.")
+    parser.add_argument("--model-path", type=str, required=False, help="Path to an existing tokenizer model file.")
+    parser.add_argument("--texts-source", type=str, required=False, help="Path to the text data file for training.")
+    parser.add_argument("--min-frequency", type=int, required=False, default=2, help="Minimum frequency for subword units.")
+    parser.add_argument("--batch-size", type=int, required=False, default=1000, help="Batch size for training.")
+    parser.add_argument("--max-samples", type=int, required=False, help="Maximum number of samples for training.")
+    parser.add_argument("--special-tokens", type=str, nargs="+", required=False, 
+                        default=["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"], 
+                        help="List of special tokens.")
+
+    args = parser.parse_args()
+
+    tokenizer_path = Path(args.model_path) if args.model_path else Path(f"{PROJECT_ROOT}/outputs/custom_tokenizer.json")
+
     tokenizer = TokenizerModel(
-        tokenizer_name="custom-arabic-tokenizer",
-        vocab_size=32000,
-        max_length=4096,
+        tokenizer_name=args.tokenizer_name,
+        vocab_size=args.vocab_size,
+        max_length=args.max_length,
         model_path=str(tokenizer_path)
     )
-    
+
     # Only train if the tokenizer file doesn't exist
-    if not tokenizer_path.exists():
+    if not tokenizer_path.exists() and args.texts_source:
         logging.info("Tokenizer file not found. Starting training...")
-        # Memory-efficient training
         tokenizer.train(
-            min_frequency=2,
-            special_tokens=["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"],
-            texts_source="data1.jsonl",
-            batch_size=1000,  # Process 1000 texts at a time
-            max_samples=None  # Optional: limit training samples (set to None for all data)
+            min_frequency=args.min_frequency,
+            special_tokens=args.special_tokens,
+            texts_source=args.texts_source,
+            batch_size=args.batch_size,
+            max_samples=args.max_samples
         )
     else:
         logging.info(f"Using existing tokenizer found at {tokenizer_path}")
-    
+
     # Example encoding with batching for large datasets
     sample_texts = [
         "هذا مثال للنص الأول.",
         "وهذا مثال آخر أطول قليلاً لاختبار الترميز.",
         "جملة قصيرة."
     ]
-    
+
     encoded_batch = tokenizer.encode_batch(sample_texts)
-    
+
     logging.info(f"Encoded batch ({len(encoded_batch)} texts):")
     for i, encoding in enumerate(encoded_batch):
         logging.info(f"Text {i+1}:")
