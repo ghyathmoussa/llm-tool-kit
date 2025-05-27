@@ -5,3 +5,7 @@ datasets
 torch==2.0.7
 trankit
 openai
+trl
+accelerate
+sentencepiece
+peft
