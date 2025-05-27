@@ -20,8 +20,8 @@ This project focuses on Natural Language Processing (NLP) for Arabic text. It ut
 
 1.  **Clone the repository:**
     ```bash
-    git clone <repository-url>
-    cd <repository-name>
+    git clone `https://github.com/ghyathmoussa/llm-tool-kit.git`
+    cd `llm-tool-kit`
     ```
 2.  **Create a virtual environment (recommended):**
     ```bash
