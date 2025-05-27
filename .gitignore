@@ -1,0 +1,12 @@
+config.json
+config.py
+data
+*.log
+.venv
+.env
+Tashkeela-arabic-diacritized-text-utf8-0.3
+.DS_Store
+__pycache__
+.idea
+source_data/
+cache/
