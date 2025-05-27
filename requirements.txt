@@ -4,3 +4,4 @@ tokenizers
 datasets
 torch==2.0.7
 trankit
+openai
