@@ -67,7 +67,46 @@ python3 embeddings_model.py \
     --epochs 5
 ```
 
-Refer to the individual notebooks for specific instructions and execution details.
+* Finetune Model
+
+Example of data structure
+
+```
+[
+  {
+    "problem": "Solve for x: 2x + 5 = 11",
+    "solution": "x = 3"
+  },
+  {
+    "problem": "If a train travels at 60 mph for 2 hours, and then at 40 mph for 1 hour, what is the total distance traveled?",
+    "solution": "Total distance = 160 miles"
+  }
+]
+```
+
+Running Code:
+
+```
+python finetune_model.py \
+  --ft-type reasoning \
+  --use-quantization lora \
+  --model-name Qwen/QwQ-32B-Preview \
+  --output-dir ./fine-tuned-model \
+  --dataset-name ./dataset.json \
+  --batch-size 8 \
+  --gradient-accumulation_steps 2 \
+  --learning-rate 2e-4 \
+  --num_train-epochs 3 \
+  --max-steps -1 \
+  --prompt "" \
+  --max-length 4096 \
+  --padding-side right \
+  --beta 0.04 \
+  --num-generations 4 \
+  --max-completion-length 128
+```
+
+
 
 ## Configuration
 
