@@ -1,4 +1,4 @@
-arabic_prompt = f"""استنادًا إلى النص العربي التالي، قم بإنشاء {} أسئلة ثاقبة مع إجاباتها المقابلة.
+arabic_prompt = """استنادًا إلى النص العربي التالي، قم بإنشاء {} أسئلة ثاقبة مع إجاباتها المقابلة.
     يجب أن تكون الأسئلة والإجابات باللغة العربية.
     تأكد من أن الإجابات مستمدة مباشرة من النص المقدم.
 
@@ -13,7 +13,7 @@ arabic_prompt = f"""استنادًا إلى النص العربي التالي،
     ]
 """
 #TODO add english and turkish prompts
-english_prompt = f"""Based on the following English text, create {} insightful questions with their corresponding answers.
+english_prompt = """Based on the following English text, create {} insightful questions with their corresponding answers.
     The questions and answers should be in English.
     Ensure that the answers are derived directly from the provided text.
 
@@ -27,7 +27,7 @@ english_prompt = f"""Based on the following English text, create {} insightful q
       // ... and so on
     ]
 """
-turkish_prompt = f"""Aşağıdaki Türkçe metne dayanarak, {} içgörücü sorular ve karşılık gelen cevaplarını oluşturun.
+turkish_prompt = """Aşağıdaki Türkçe metne dayanarak, {} içgörücü sorular ve karşılık gelen cevaplarını oluşturun.
     Sorular ve cevaplar Türkçe olmalıdır.
     Cevapların, sağlanan metinden doğrudan türetildiğinden emin olun.
 
