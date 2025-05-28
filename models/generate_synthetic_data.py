@@ -3,8 +3,9 @@ import os
 import argparse
 import openai # Added for OpenRouter
 from helpers.get_prompt import get_prompt
+from config import API_KEY  # Assuming you have a config.py with API_KEY defined
 
-def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api_key: str | None = None, llm_model: str = "openai/gpt-4o-mini"):
+def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api_key: str = None, llm_model: str = "openai/gpt-4o-mini"):
     """
     Generates question-answer pairs from the given Arabic text using an LLM via OpenRouter.
 
@@ -23,7 +24,7 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
         return []
 
     if not api_key:
-        api_key = os.environ.get("OPENROUTER_API_KEY")
+        api_key = os.environ.get("API_KEY")
         if not api_key:
             print("Error: OpenRouter API key not provided. Set OPENROUTER_API_KEY environment variable or use --llm-api-key.")
             return []
@@ -161,10 +162,10 @@ if __name__ == "__main__":
     DEFAULT_LLM_MODEL = "openai/gpt-4o-mini" # You can change this
     
     parser = argparse.ArgumentParser(description="Generate synthetic Q&A data for fine-tuning.")
-    parser.add_argument("--input-file", type=str, required=True, help="Path to the input JSONL file.")
-    parser.add_argument("--output-file", type=str, required=True, help="Path to the output JSONL file.")
+    parser.add_argument("--input-file", type=str, required=True, default=INPUT_FILE_PATH, help="Path to the input JSONL file.")
+    parser.add_argument("--output-file", type=str, required=True, default=OUTPUT_FILE_PATH, help="Path to the output JSONL file.")
     parser.add_argument("--qa-per-chunk", type=int, default=QA_PAIRS_PER_CHUNK, help="Number of Q&A pairs to generate per text chunk.")
-    parser.add_argument("--llm-api-key", type=str, help="API key for the LLM service (e.g., OpenRouter). If not provided, tries to use OPENROUTER_API_KEY env var.")
+    parser.add_argument("--llm-api-key", type=str, default=API_KEY, help="API key for the LLM service (e.g., OpenRouter). If not provided, tries to use OPENROUTER_API_KEY env var.")
     parser.add_argument("--llm-model", type=str, default=DEFAULT_LLM_MODEL, help=f"The LLM model to use via OpenRouter (default: {DEFAULT_LLM_MODEL}).")
 
     args = parser.parse_args()
