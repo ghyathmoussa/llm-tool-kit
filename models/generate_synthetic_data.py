@@ -2,6 +2,7 @@ import json
 import os
 import argparse
 import openai # Added for Groq
+import time # Added for rate limiting
 from helpers.get_prompt import get_prompt
 from config import API_KEY # Assuming you have a config.py with API_KEY defined, consider renaming for Groq
 
@@ -89,6 +90,8 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
     print(f"Starting synthetic data generation from '{input_file_path}'...")
     count_processed_lines = 0
     count_generated_qa_pairs = 0
+    request_count = 0 # Added for rate limiting
+    request_window_start_time = time.time() # Added for rate limiting
 
     # Ensure the output directory exists
     os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
@@ -104,6 +107,20 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
                     print(f"Warning: Skipping line {line_number} due to missing 'text' field.")
                     continue
 
+                # Rate limiting check
+                current_time = time.time()
+                if request_count >= 29:
+                    elapsed_time = current_time - request_window_start_time
+                    if elapsed_time < 60: # If 29 requests made in less than 1 minute
+                        sleep_duration = 120 # Sleep for 2 minutes
+                        print(f"Rate limit potentially hit (29 requests in {elapsed_time:.2f}s). Sleeping for {sleep_duration} seconds...")
+                        time.sleep(sleep_duration)
+                        request_count = 0
+                        request_window_start_time = time.time() # Reset window after sleeping
+                    else: # If 1 minute has passed, reset window without sleeping
+                        request_count = 0
+                        request_window_start_time = current_time
+
                 # Generate Q&A pairs using the Groq LLM function
                 qa_pairs = generate_qa_from_text_with_llm(
                     text_content=original_text,
@@ -111,6 +128,7 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
                     api_key=api_key, # Pass the API key
                     llm_model=llm_model # Pass the llm_model
                 )
+                request_count += 1 # Increment request counter after successful call or attempt
 
                 if not qa_pairs:
                     print(f"Warning: No Q&A pairs generated for line {line_number} (text starting: '{original_text[:50]}...').")
