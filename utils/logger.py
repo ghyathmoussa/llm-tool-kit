@@ -1,34 +1,24 @@
-import logging
+from loguru import logger
+import sys
 
 def setup_app_logger(name):
     """
-    Set up a logger for the application.
-
-    Args:
-        name: The name of the logger
+    Set up a logger for the application using Loguru.
 
     Returns:
-        A logger object
+        A logger object configured with a default sink.
     """
-    logger = logging.getLogger(name)
-    
-    # Set the default level to INFO
-    logger.setLevel(logging.INFO)
-    
-    # Create formatter
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    logger.remove()  # Remove default handler to avoid duplicate logs if reconfigured
+    logger.add(
+        sys.stderr,
+        format="{time:YYYY-MM-DD HH:mm:ss} - {name} - {level} - {message}",
+        level="INFO"
     )
-    
-    # Create console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
     return logger
 
 # Example of how to use this setup function in your module:
-# logger = setup_app_logger(__name__)
+# from utils.logger import setup_app_logger
+# logger = setup_app_logger()
 #
 # logger.debug("This is a debug message from the application.")
 # logger.info("Informational message.")
