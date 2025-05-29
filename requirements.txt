@@ -10,3 +10,5 @@ accelerate
 sentencepiece
 peft
 python-dotenv
+pytest
+loguru
