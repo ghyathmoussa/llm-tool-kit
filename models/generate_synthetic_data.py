@@ -5,6 +5,9 @@ import openai # Added for Groq
 import time # Added for rate limiting
 from helpers.get_prompt import get_prompt
 from config import API_KEY # Assuming you have a config.py with API_KEY defined, consider renaming for Groq
+from utils.logger import setup_app_logger
+
+logger = setup_app_logger(__name__)
 
 def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api_key: str = None, llm_model: str = "llama3-8b-8192"):
     """
@@ -27,7 +30,7 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
     if not api_key:
         api_key = os.environ.get("API_KEY") # Changed from OPENROUTER_API_KEY
         if not api_key:
-            print("Error: Groq API key not provided. Set GROQ_API_KEY environment variable or use --llm-api-key.")
+            logger.error("Error: Groq API key not provided. Set GROQ_API_KEY environment variable or use --llm-api-key.")
             return []
 
     client = openai.OpenAI(
@@ -37,7 +40,7 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
 
     prompt_text = get_prompt(language='arabic', num_qa_pairs=num_qa_pairs, text_content=text_content)
 
-    print(f"DEBUG: Calling Groq with model {llm_model} for text starting with: {text_content[:100]}...")
+    logger.debug(f"DEBUG: Calling Groq with model {llm_model} for text starting with: {text_content[:100]}...")
 
     try:
         completion = client.chat.completions.create(
@@ -51,16 +54,16 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
         )
         
         response_content = completion.choices[0].message.content
-        print(f"DEBUG: Raw LLM response: {response_content}") # For debugging
+        logger.debug(f"DEBUG: Raw LLM response: {response_content}") # For debugging
 
         try:
             qa_pairs = json.loads(response_content)
             if not isinstance(qa_pairs, list): # Ensure it's a list
-                 print(f"Warning: LLM response was not a list of Q&A pairs. Response: {response_content}")
+                 logger.warning(f"Warning: LLM response was not a list of Q&A pairs. Response: {response_content}")
                  return []
             return qa_pairs
         except json.JSONDecodeError:
-            print(f"Error: Could not decode LLM response as JSON. Response: {response_content}")
+            logger.error(f"Error: Could not decode LLM response as JSON. Response: {response_content}")
             # Attempt to extract Q&A pairs using a fallback mechanism if JSON parsing fails
             # This is a placeholder for a more robust parsing strategy
             # For now, we'll return an empty list if JSON parsing fails
@@ -75,10 +78,10 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
             return []
 
     except openai.APIError as e:
-        print(f"Groq API error: {e}") # Changed from OpenRouter
+        logger.error(f"Groq API error: {e}") # Changed from OpenRouter
         return []
     except Exception as e:
-        print(f"An unexpected error occurred during LLM call: {e}")
+        logger.error(f"An unexpected error occurred during LLM call: {e}")
         return []
 
 
@@ -87,7 +90,7 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
     Reads data from input_file_path, generates synthetic Q&A pairs,
     and writes them to output_file_path in an instruction-following format.
     """
-    print(f"Starting synthetic data generation from '{input_file_path}'...")
+    logger.info(f"Starting synthetic data generation from '{input_file_path}'...")
     count_processed_lines = 0
     count_generated_qa_pairs = 0
     request_count = 0 # Added for rate limiting
@@ -104,7 +107,7 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
                 original_text = data_entry.get("text")
 
                 if not original_text:
-                    print(f"Warning: Skipping line {line_number} due to missing 'text' field.")
+                    logger.warning(f"Warning: Skipping line {line_number} due to missing 'text' field.")
                     continue
 
                 # Rate limiting check
@@ -113,7 +116,7 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
                     elapsed_time = current_time - request_window_start_time
                     if elapsed_time < 60: # If 29 requests made in less than 1 minute
                         sleep_duration = 120 # Sleep for 2 minutes
-                        print(f"Rate limit potentially hit (29 requests in {elapsed_time:.2f}s). Sleeping for {sleep_duration} seconds...")
+                        logger.warning(f"Rate limit potentially hit (29 requests in {elapsed_time:.2f}s). Sleeping for {sleep_duration} seconds...")
                         time.sleep(sleep_duration)
                         request_count = 0
                         request_window_start_time = time.time() # Reset window after sleeping
@@ -131,12 +134,12 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
                 request_count += 1 # Increment request counter after successful call or attempt
 
                 if not qa_pairs:
-                    print(f"Warning: No Q&A pairs generated for line {line_number} (text starting: '{original_text[:50]}...').")
+                    logger.warning(f"Warning: No Q&A pairs generated for line {line_number} (text starting: '{original_text[:50]}...').")
                     continue
 
                 for qa in qa_pairs:
                     if not (isinstance(qa, dict) and "question" in qa and "answer" in qa):
-                        print(f"Warning: Skipping malformed Q&A pair on line {line_number}: {qa}")
+                        logger.warning(f"Warning: Skipping malformed Q&A pair on line {line_number}: {qa}")
                         continue
                     
                     # Format for instruction fine-tuning
@@ -156,17 +159,17 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
                 
                 count_processed_lines += 1
                 if count_processed_lines % 50 == 0: # Log progress every 50 source lines
-                    print(f"Processed {count_processed_lines} lines from input, generated {count_generated_qa_pairs} Q&A pairs so far...")
+                    logger.info(f"Processed {count_processed_lines} lines from input, generated {count_generated_qa_pairs} Q&A pairs so far...")
 
             except json.JSONDecodeError:
-                print(f"Warning: Skipping line {line_number} due to JSON decode error: {line.strip()}")
+                logger.warning(f"Warning: Skipping line {line_number} due to JSON decode error: {line.strip()}")
             except Exception as e:
-                print(f"Error processing line {line_number}: {line.strip()}. Error: {e}")
+                logger.error(f"Error processing line {line_number}: {line.strip()}. Error: {e}")
 
-    print(f"Synthetic data generation complete.")
-    print(f"Processed {count_processed_lines} lines from the input file.")
-    print(f"Generated a total of {count_generated_qa_pairs} Q&A pairs.")
-    print(f"Output written to '{output_file_path}'")
+    logger.info("Synthetic data generation complete.")
+    logger.info(f"Processed {count_processed_lines} lines from the input file.")
+    logger.info(f"Generated a total of {count_generated_qa_pairs} Q&A pairs.")
+    logger.info(f"Output written to '{output_file_path}'")
 
 
 if __name__ == "__main__":
