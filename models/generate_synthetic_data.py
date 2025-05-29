@@ -1,19 +1,19 @@
 import json
 import os
 import argparse
-import openai # Added for OpenRouter
+import openai # Added for Groq
 from helpers.get_prompt import get_prompt
-from config import API_KEY  # Assuming you have a config.py with API_KEY defined
+from config import API_KEY # Assuming you have a config.py with API_KEY defined, consider renaming for Groq
 
-def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api_key: str = None, llm_model: str = "openai/gpt-4o-mini"):
+def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api_key: str = None, llm_model: str = "llama3-8b-8192"):
     """
-    Generates question-answer pairs from the given Arabic text using an LLM via OpenRouter.
+    Generates question-answer pairs from the given Arabic text using an LLM via Groq.
 
     Args:
         text_content (str): The Arabic text from which to generate Q&A.
         num_qa_pairs (int): The desired number of Q&A pairs.
-        api_key (str, optional): The OpenRouter API key. Defaults to None.
-        llm_model (str, optional): The model to use via OpenRouter. Defaults to "openai/gpt-4o-mini".
+        api_key (str, optional): The Groq API key. Defaults to None.
+        llm_model (str, optional): The model to use via Groq. Defaults to "llama3-8b-8192".
 
     Returns:
         list: A list of dictionaries, where each dictionary is
@@ -24,19 +24,19 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
         return []
 
     if not api_key:
-        api_key = os.environ.get("API_KEY")
+        api_key = os.environ.get("API_KEY") # Changed from OPENROUTER_API_KEY
         if not api_key:
-            print("Error: OpenRouter API key not provided. Set OPENROUTER_API_KEY environment variable or use --llm-api-key.")
+            print("Error: Groq API key not provided. Set GROQ_API_KEY environment variable or use --llm-api-key.")
             return []
 
     client = openai.OpenAI(
-        base_url="https://openrouter.ai/api/v1",
+        base_url="https://api.groq.com/openai/v1", # Changed to Groq endpoint
         api_key=api_key,
     )
 
     prompt_text = get_prompt(language='arabic', num_qa_pairs=num_qa_pairs, text_content=text_content)
 
-    print(f"DEBUG: Calling OpenRouter with model {llm_model} for text starting with: {text_content[:100]}...")
+    print(f"DEBUG: Calling Groq with model {llm_model} for text starting with: {text_content[:100]}...")
 
     try:
         completion = client.chat.completions.create(
@@ -70,18 +70,18 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
             # if "question:" in response_content.lower() and "answer:" in response_content.lower():
             #     # Simple split logic, highly dependent on LLM's non-JSON output format
             #     # This part needs to be carefully designed based on observed LLM outputs
-            #     pass 
+            #     pass
             return []
 
     except openai.APIError as e:
-        print(f"OpenRouter API error: {e}")
+        print(f"Groq API error: {e}") # Changed from OpenRouter
         return []
     except Exception as e:
         print(f"An unexpected error occurred during LLM call: {e}")
         return []
 
 
-def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_key=None):
+def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_key=None, llm_model=None):
     """
     Reads data from input_file_path, generates synthetic Q&A pairs,
     and writes them to output_file_path in an instruction-following format.
@@ -104,11 +104,12 @@ def create_synthetic_data(input_file_path, output_file_path, qa_per_chunk, api_k
                     print(f"Warning: Skipping line {line_number} due to missing 'text' field.")
                     continue
 
-                # Generate Q&A pairs using the OpenRouter LLM function
+                # Generate Q&A pairs using the Groq LLM function
                 qa_pairs = generate_qa_from_text_with_llm(
                     text_content=original_text,
                     num_qa_pairs=qa_per_chunk,
-                    api_key=api_key # Pass the API key
+                    api_key=api_key, # Pass the API key
+                    llm_model=llm_model # Pass the llm_model
                 )
 
                 if not qa_pairs:
@@ -158,16 +159,16 @@ if __name__ == "__main__":
     # Number of Q&A pairs to try and generate per text chunk
     # Adjust this based on your needs and LLM capabilities
     QA_PAIRS_PER_CHUNK = 3
-    # Default OpenRouter model (example)
-    DEFAULT_LLM_MODEL = "openai/gpt-4o-mini" # You can change this
+    # Default Groq model (example)
+    DEFAULT_LLM_MODEL = "llama3-8b-8192" # You can change this
     
     parser = argparse.ArgumentParser(description="Generate synthetic Q&A data for fine-tuning.")
     parser.add_argument("--input-file", type=str, required=True, default=INPUT_FILE_PATH, help="Path to the input JSONL file.")
     parser.add_argument("--output-file", type=str, required=True, default=OUTPUT_FILE_PATH, help="Path to the output JSONL file.")
     parser.add_argument("--qa-per-chunk", type=int, default=QA_PAIRS_PER_CHUNK, help="Number of Q&A pairs to generate per text chunk.")
-    parser.add_argument("--llm-api-key", type=str, default=API_KEY, help="API key for the LLM service (e.g., OpenRouter). If not provided, tries to use OPENROUTER_API_KEY env var.")
-    parser.add_argument("--llm-model", type=str, default=DEFAULT_LLM_MODEL, help=f"The LLM model to use via OpenRouter (default: {DEFAULT_LLM_MODEL}).")
+    parser.add_argument("--llm-api-key", type=str, default=API_KEY, help="API key for the Groq service. If not provided, tries to use API_KEY env var.") # Changed argument
+    parser.add_argument("--llm-model", type=str, help=f"The LLM model to use via Groq (default: {DEFAULT_LLM_MODEL}).") # Changed description
 
     args = parser.parse_args()
     
-    create_synthetic_data(args.input_file, args.output_file, args.qa_per_chunk, api_key=args.llm_api_key)
+    create_synthetic_data(args.input_file, args.output_file, args.qa_per_chunk, api_key=args.llm_api_key, llm_model=args.llm_model) # Changed to use args.groq_api_key
