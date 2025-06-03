@@ -6,6 +6,7 @@ import time # Added for rate limiting
 from helpers.get_prompt import get_prompt
 from config import API_KEY # Assuming you have a config.py with API_KEY defined, consider renaming for Groq
 from utils.logger import setup_app_logger
+import re
 
 logger = setup_app_logger(__name__)
 
@@ -37,7 +38,6 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
         base_url="https://api.groq.com/openai/v1", # Changed to Groq endpoint
         api_key=api_key,
     )
-
     prompt_text = get_prompt(language='arabic', num_qa_pairs=num_qa_pairs, text_content=text_content)
 
     logger.debug(f"DEBUG: Calling Groq with model {llm_model} for text starting with: {text_content[:100]}...")
@@ -55,6 +55,7 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
         
         response_content = completion.choices[0].message.content
         logger.debug(f"DEBUG: Raw LLM response: {response_content}") # For debugging
+        logger.debug(f"length of prompt_text: {len(prompt_text)}")
 
         try:
             qa_pairs = json.loads(response_content)
@@ -65,17 +66,50 @@ def generate_qa_from_text_with_llm(text_content: str, num_qa_pairs: int = 3, api
         except json.JSONDecodeError:
             logger.error(f"Error: Could not decode LLM response as JSON. Response: {response_content}")
             # Attempt to extract Q&A pairs using a fallback mechanism if JSON parsing fails
-            # This is a placeholder for a more robust parsing strategy
-            # For now, we'll return an empty list if JSON parsing fails
-            # A more advanced approach might involve regex or other parsing techniques
-            # based on the expected (but not strictly JSON) output format.
-            # Example (very basic, needs refinement):
-            # qa_list = []
-            # if "question:" in response_content.lower() and "answer:" in response_content.lower():
-            #     # Simple split logic, highly dependent on LLM's non-JSON output format
-            #     # This part needs to be carefully designed based on observed LLM outputs
-            #     pass
-            return []
+            qa_list = []
+            try:
+                # Example regex: Assumes "Q: ... A: ..." or "Question: ... Answer: ..."
+                # This regex needs to be robust and tested with actual LLM failure outputs.
+                # It looks for "question:" followed by any characters (non-greedy) until "answer:",
+                # then captures the answer. This is a simplified example.
+                # Attempt to find structured Q&A pairs even if not perfect JSON
+                # This regex looks for "question:" and "answer:" allowing for variations in casing and spacing.
+                # It captures the text after "question:" and "answer:".
+                # It assumes questions and answers might be separated by newlines or other text.
+
+                # Split by "question:" or "سؤال:" (case-insensitive)
+                potential_qa_blocks = re.split(r'(?:question|سؤال):', response_content, flags=re.IGNORECASE)
+                
+                for block in potential_qa_blocks:
+                    if not block.strip():
+                        continue
+
+                    # Try to find "answer:" or "إجابة:" within the block
+                    match = re.search(r'(.*?)(?:answer|إجابة):\s*(.*)', block, flags=re.IGNORECASE | re.DOTALL)
+                    if match:
+                        question_text = match.group(1).strip()
+                        answer_text = match.group(2).strip()
+                        
+                        # Basic cleaning: remove potential leading/trailing quotes or list markers if model adds them
+                        question_text = re.sub(r'^["\'\d.\s-]*|["\'\s]*$', '', question_text)
+                        answer_text = re.sub(r'^["\'\d.\s-]*|["\'\s]*$', '', answer_text)
+
+                        if question_text and answer_text:
+                            qa_list.append({"question": question_text, "answer": answer_text})
+                        else:
+                            logger.debug(f"Fallback: Found block but couldn't extract Q or A cleanly from: {block[:100]}...")
+                    else:
+                        logger.debug(f"Fallback: No clear answer found in block: {block[:100]}...")
+                
+                if qa_list:
+                    logger.info(f"Successfully extracted {len(qa_list)} Q&A pairs using fallback regex from non-JSON response.")
+                    return qa_list
+                else:
+                    logger.warning(f"Fallback regex extraction failed to find Q&A pairs in: {response_content}")
+                    return []
+            except Exception as e_fallback:
+                logger.error(f"Error during fallback Q&A extraction: {e_fallback}")
+                return []
 
     except openai.APIError as e:
         logger.error(f"Groq API error: {e}") # Changed from OpenRouter
