@@ -9,4 +9,8 @@ RUN apt-get update && \
     pip install -U pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt \
+    --timeout 600 \
+    --retries 3 \
+    --resume-retries 5
+ENV PYTHONPATH=/app

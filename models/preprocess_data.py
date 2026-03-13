@@ -1,10 +1,14 @@
+import argparse
 import json
 import os
-from transformers import AutoTokenizer
-from utils.logger import setup_app_logger
+from typing import Dict, Generator, List, Optional
+
 import trankit
 from tqdm import tqdm
-import argparse
+from transformers import AutoTokenizer
+
+from models.db_manager import PostgreSQLManager
+from utils.logger import setup_app_logger
 
 # --- Configuration ---
 INPUT_FOLDER_PATH = "../source_data/"
@@ -15,9 +19,18 @@ FIRST_LINE_TO_SKIP = "هذا الملف آليا بواسطة المكتبة ا�
 logger = setup_app_logger(__name__)
 
 class Processor:
-    def __init__(self, model_name, max_tokens):
+    def __init__(self, model_name: str, max_tokens: int, db_manager: Optional[PostgreSQLManager] = None):
+        """
+        Initialize the Processor with optional database manager.
+
+        Args:
+            model_name: Name of the tokenizer model to use
+            max_tokens: Maximum tokens per chunk
+            db_manager: Optional PostgreSQLManager for database operations
+        """
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.max_tokens = max_tokens
+        self.db_manager = db_manager
         # Initialize Trankit for Arabic
         self.nlp = trankit.Pipeline('arabic', cache_dir='../cache')
 
@@ -80,6 +93,89 @@ class Processor:
         return tokens, len(tokens)
 
     # --- Helper Functions ---
+    def _process_single_text(self, text: str, fatwa_id: int, chunk_index_offset: int = 0) -> List[Dict]:
+        """
+        Process a single text and return chunks for database insertion.
+
+        Args:
+            text: The text to chunk
+            fatwa_id: The fatwa ID for the text
+            chunk_index_offset: Starting chunk index (usually 0)
+
+        Returns:
+            List of chunk dictionaries ready for database insertion
+        """
+        if not text or not text.strip():
+            return []
+
+        text = text.strip()
+        all_chunks = []
+        current_chunk_parts = []
+        current_chunk_tokens = 0
+        chunk_index = chunk_index_offset
+
+        # Split into paragraphs and sentences
+        paragraphs = [p for p in text.split("\n") if p.strip()]
+
+        for paragraph in paragraphs:
+            sentences = self.sentencize_text(paragraph)
+
+            for sentence in sentences:
+                if not sentence.strip():
+                    continue
+
+                # Check if sentence needs splitting
+                _, sentence_tokens = self.tokenize_and_count(sentence)
+
+                if sentence_tokens > self.max_tokens:
+                    logger.warning(f"Sentence too long ({sentence_tokens} tokens), splitting for fatwa_id={fatwa_id}")
+                    sentence_parts = self._split_text_to_fit(sentence, self.max_tokens)
+                else:
+                    sentence_parts = [sentence]
+
+                for sentence_part in sentence_parts:
+                    if not sentence_part.strip():
+                        continue
+
+                    _, part_tokens = self.tokenize_and_count(sentence_part)
+
+                    if part_tokens == 0:
+                        continue
+
+                    # Check if adding to current chunk would exceed limit
+                    if current_chunk_tokens + part_tokens > self.max_tokens and current_chunk_parts:
+                        # Finalize current chunk
+                        chunk_text = "\n".join(current_chunk_parts)
+                        all_chunks.append({
+                            'fatwa_id': fatwa_id,
+                            'chunk_index': chunk_index,
+                            'chunk_text': chunk_text,
+                            'word_count': current_chunk_tokens,  # Using token count as word_count
+                            'embedding_status': 'pending'
+                        })
+                        chunk_index += 1
+
+                        # Start new chunk
+                        current_chunk_parts = [sentence_part]
+                        current_chunk_tokens = part_tokens
+                    else:
+                        # Add to current chunk
+                        current_chunk_parts.append(sentence_part)
+                        current_chunk_tokens += part_tokens
+
+        # Add final chunk if any remaining
+        if current_chunk_parts:
+            chunk_text = "\n".join(current_chunk_parts)
+            all_chunks.append({
+                'fatwa_id': fatwa_id,
+                'chunk_index': chunk_index,
+                'chunk_text': chunk_text,
+                'word_count': current_chunk_tokens,
+                'embedding_status': 'pending'
+            })
+
+        return all_chunks
+
     def clean_text(self, text):
         """Basic text cleaning."""
         text = text.strip()
@@ -171,6 +267,103 @@ class Processor:
         except Exception as e:
             logger.error(f"An unexpected error occurred during writing: {e}")
 
+    def process_database(
+        self,
+        text_column: str = 'answer',
+        skip_existing: bool = True,
+        delete_existing: bool = False,
+        batch_size: int = 100,
+        limit: Optional[int] = None
+    ):
+        """
+        Process fatwas from PostgreSQL database and save chunks to database.
+
+        Args:
+            text_column: Name of column in fatwas table containing text to chunk
+            skip_existing: Skip fatwas that already have chunks (default: True)
+            delete_existing: Delete existing chunks before re-processing (conflicts with skip_existing)
+            batch_size: Number of chunks to insert in one batch
+            limit: Optional limit on number of fatwas to process
+        """
+        if not self.db_manager:
+            raise ValueError("Database manager not initialized")
+
+        if skip_existing and delete_existing:
+            raise ValueError("Cannot use both skip_existing and delete_existing")
+
+        logger.info(f"Starting database processing from column '{text_column}'")
+        logger.info(f"Skip existing: {skip_existing}, Delete existing: {delete_existing}")
+
+        # Initialize connection pool if not already done
+        if not self.db_manager.connection_pool:
+            self.db_manager.initialize_pool()
+
+        # Get existing fatwa_ids if skipping
+        existing_fatwa_ids = None
+        if skip_existing:
+            existing_fatwa_ids = self.db_manager.get_existing_fatwa_ids()
+            logger.info(f"Found {len(existing_fatwa_ids)} fatwas with existing chunks")
+
+        # Process fatwas
+        chunks_batch = []
+        total_fatwas_processed = 0
+        total_chunks_attempted = 0
+        total_chunks_inserted = 0
+        skipped_count = 0
+
+        fatwas_generator = self.db_manager.get_fatwas_to_process(
+            text_column=text_column,
+            limit=limit,
+            skip_existing=skip_existing,
+            existing_fatwa_ids=existing_fatwa_ids
+        )
+
+        for fatwa in tqdm(fatwas_generator, desc="Processing fatwas"):
+            fatwa_id = fatwa['id']
+            text = fatwa['text']
+
+            # Skip if delete_existing is set and we need to clear first
+            if delete_existing:
+                self.db_manager.delete_chunks_for_fatwa(fatwa_id)
+
+            # Process text into chunks
+            chunks = self._process_single_text(
+                text=text,
+                fatwa_id=fatwa_id,
+                chunk_index_offset=0
+            )
+
+            if not chunks:
+                logger.warning(f"No chunks generated for fatwa_id={fatwa_id}")
+                skipped_count += 1
+                continue
+
+            # Add chunks to batch
+            chunks_batch.extend(chunks)
+            total_fatwas_processed += 1
+
+            # Insert batch if it reaches batch_size
+            if len(chunks_batch) >= batch_size:
+                attempted, inserted = self.db_manager.insert_chunks_batch(chunks_batch)
+                total_chunks_attempted += attempted
+                total_chunks_inserted += inserted
+                duplicates = attempted - inserted
+                logger.info(f"Inserted batch: {inserted} chunks (duplicates skipped: {duplicates}, total inserted: {total_chunks_inserted})")
+                chunks_batch = []
+
+        # Insert remaining chunks
+        if chunks_batch:
+            attempted, inserted = self.db_manager.insert_chunks_batch(chunks_batch)
+            total_chunks_attempted += attempted
+            total_chunks_inserted += inserted
+            duplicates = attempted - inserted
+            logger.info(f"Inserted final batch: {inserted} chunks (duplicates skipped: {duplicates}, total inserted: {total_chunks_inserted})")
+
+        logger.info(f"Processing complete: {total_fatwas_processed} fatwas processed, {total_chunks_inserted} chunks inserted, {total_chunks_attempted - total_chunks_inserted} duplicates skipped, {skipped_count} fatwas with no chunks")
+
+        # Close connection pool
+        self.db_manager.close_pool()
+
     def _process_single_file(self, input_file_path, chunk_id_offset=0, skip_header_line=None):
         """
         Processes a single input file, chunks it, and returns chunk data.
@@ -256,19 +449,117 @@ class Processor:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process text data from a folder into a single JSONL file with adaptive chunking.")
-    parser.add_argument('--input-dir', type=str, default=INPUT_FOLDER_PATH, help='Path to the folder containing input .txt files.')
-    parser.add_argument('--output-file', type=str, default=OUTPUT_JSONL_PATH, help='Path to the output JSONL file.')
-    parser.add_argument('--max-tokens', type=int, default=MAX_TOKENS_PER_CHUNK, help='Maximum tokens per chunk.')
-    parser.add_argument('--skip-header', type=str, default=FIRST_LINE_TO_SKIP, help='First line to skip in the input file.')
-    
-    args = parser.parse_args()
-    
-    logger.info(f"Input folder: {args.input_dir}")
-    logger.info(f"Output JSONL file: {args.output_file}")
-    logger.info(f"Max tokens per chunk: {args.max_tokens}")
-    logger.info(f"Skipping header line: {args.skip_header}")
+    parser = argparse.ArgumentParser(
+        description="Process text data from files or PostgreSQL database into chunks."
+    )
 
+    # Input mode selection
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        '--input-dir',
+        type=str,
+        default=INPUT_FOLDER_PATH,
+        help='Path to folder containing input .txt files (file mode)'
+    )
+    input_group.add_argument(
+        '--database-url',
+        type=str,
+        help='PostgreSQL connection URL (database mode), e.g., postgresql://user:pass@host:port/db'
+    )
+
+    # Output mode selection
+    parser.add_argument(
+        '--output-file',
+        type=str,
+        default=OUTPUT_JSONL_PATH,
+        help='Path to output JSONL file (file mode only)'
+    )
+
+    # Common options
+    parser.add_argument(
+        '--max-tokens',
+        type=int,
+        default=MAX_TOKENS_PER_CHUNK,
+        help='Maximum tokens per chunk.'
+    )
+    parser.add_argument(
+        '--skip-header',
+        type=str,
+        default=FIRST_LINE_TO_SKIP,
+        help='First line to skip in input files (file mode only)'
+    )
+
+    # Database-specific options
+    parser.add_argument(
+        '--text-column',
+        type=str,
+        default='answer',
+        help='Name of column in fatwas table to chunk (database mode, default: answer)'
+    )
+    parser.add_argument(
+        '--skip-existing',
+        action='store_true',
+        default=True,
+        help='Skip fatwas that already have chunks (database mode, default: True)'
+    )
+    parser.add_argument(
+        '--no-skip-existing',
+        action='store_false',
+        dest='skip_existing',
+        help='Do not skip fatwas that already have chunks (database mode)'
+    )
+    parser.add_argument(
+        '--reprocess-existing',
+        action='store_true',
+        help='Reprocess existing fatwas by deleting their chunks first (database mode)'
+    )
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=100,
+        help='Number of chunks to insert per batch (database mode, default: 100)'
+    )
+    parser.add_argument(
+        '--limit',
+        type=int,
+        default=None,
+        help='Limit number of fatwas to process (database mode)'
+    )
+
+    args = parser.parse_args()
+
+    logger.info(f"Input mode: {'Database' if args.database_url else 'File'}")
+    logger.info(f"Max tokens per chunk: {args.max_tokens}")
+
+    # Initialize processor
     processor = Processor("aubmindlab/bert-base-arabertv02", args.max_tokens)
-    
-    processor.process_folder(args.input_dir, args.output_file, args.skip_header)
+
+    # Process based on mode
+    if args.database_url:
+        # Database mode
+        logger.info(f"Database URL: {args.database_url}")
+        logger.info(f"Text column: {args.text_column}")
+        logger.info(f"Skip existing: {args.skip_existing}")
+        logger.info(f"Reprocess existing: {args.reprocess_existing}")
+
+        # Initialize database manager
+        db_manager = PostgreSQLManager(args.database_url)
+        processor.db_manager = db_manager
+
+        # Process database
+        processor.process_database(
+            text_column=args.text_column,
+            skip_existing=args.skip_existing,
+            delete_existing=args.reprocess_existing,
+            batch_size=args.batch_size,
+            limit=args.limit
+        )
+    else:
+        # File mode (existing functionality)
+        logger.info(f"Input folder: {args.input_dir}")
+        logger.info(f"Output JSONL file: {args.output_file}")
+        logger.info(f"Skipping header line: {args.skip_header}")
+
+        processor.process_folder(args.input_dir, args.output_file, args.skip_header)
+
+    logger.info("Processing complete!")
